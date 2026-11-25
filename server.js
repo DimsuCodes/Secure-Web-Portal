@@ -1,4 +1,5 @@
 import 'dotenv/config'; // loads values from my .env file into process.env
+import passport from './config/passport.js';
 import db from './config/connection.js'
 import express from 'express'; // imwporting express to build a server and api routes.
 import routes from './routes/index.js';
@@ -11,9 +12,9 @@ const PORT = process.env.PORT || 3001;
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
- 
+app.use(passport.initialize());
 app.use(routes);
- 
+
 db.once('open', () => {
   app.listen(PORT, () => console.log(`🌍 Now listening on localhost:${PORT}`));
 });
