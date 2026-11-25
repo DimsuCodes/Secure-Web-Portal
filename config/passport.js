@@ -8,6 +8,7 @@ passport.use(
       clientID: process.env.GITHUB_CLIENT_ID,
       clientSecret: process.env.GITHUB_CLIENT_SECRET,
       callbackURL: process.env.GITHUB_CALLBACK_URL, // e.g., 'http://localhost:3001/api/users/auth/github/callback'
+      scope: ['user:email'],
     },
     // This is the "verify" callback
     async (accessToken, refreshToken, profile, done) => {
@@ -19,7 +20,7 @@ passport.use(
           // If user already exists, pass them to the next middleware
           return done(null, existingUser);
         }
-        const email = profile.emails[0].value;
+       const email = profile.emails?.[0]?.value || `${profile.username}@users.noreply.github.com`;
         const emailUser = await User.findOne({email: email})
         if(emailUser) {
             emailUser.githubId = profile.id;
