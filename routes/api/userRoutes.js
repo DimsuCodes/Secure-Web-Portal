@@ -6,6 +6,9 @@ import { signToken } from '../../utils/auth.js';
  
 // POST /api/users/register - Create a new user
 router.post('/register', async (req, res) => {
+  if (!req.body.password){
+    return res.status(400).json({message: 'Password required.'})
+  }
   try {
     const user = await User.create(req.body);
     const token = signToken(user);
