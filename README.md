@@ -1,47 +1,49 @@
-# Secure Notes API
+# Secure Web Portal
 
-A Notes API built with Express, MongoDB, and JSON Web Tokens (JWT).
-Users can register, log in, and manage **only their own** notes.
+A secure Express API where users can register, log in with **email and password** or with **GitHub**,
+and manage a private collection of **bookmarks**. Users can only see and change their own bookmarks.
 
-This is Lab 2 (Secure Record Storage) from Module 14: Authentication and Authorization.
+This is the Module 14 SBA (Authentication and Authorization) for "Innovate Inc."
 
-## The problem this fixes
+## Features
 
-The starter API made you log in, but once you were logged in, you could view, update,
-or delete **anyone's** notes. This project adds **ownership-based authorization**:
-
-- Every note stores the `_id` of the user who created it.
-- `GET /api/notes` returns only your notes.
-- `PUT` and `DELETE` check who owns the note first, and send back **403 Forbidden** if it isn't yours.
+- **Local auth:** register and log in with email and password. Passwords are hashed with bcrypt.
+- **GitHub login (OAuth 2.0):** log in with GitHub through Passport (`passport-github2`).
+- **JWT tokens:** both login types return a signed JSON Web Token (expires in 2 hours).
+- **Linked accounts:** if a GitHub user's email matches an existing local account, the GitHub account is linked to it.
+- **Protected bookmarks:** every bookmark route needs a valid token (**401** without one).
+- **Ownership checks:** you can only view, update, or delete your own bookmarks (**403** otherwise).
 
 ## Tech used
 
-- **Node.js** + **Express 5**: server and routes
-- **MongoDB Atlas** + **Mongoose 9**: database and models
-- **bcrypt**: hashes passwords before saving
-- **jsonwebtoken**: makes and checks login tokens
+- **Node.js** + **Express 5**
+- **MongoDB Atlas** + **Mongoose 9**
+- **bcrypt**: password hashing
+- **jsonwebtoken**: signing and checking tokens
+- **passport** + **passport-github2**: GitHub OAuth
 - **dotenv**: loads secrets from `.env`
 - ES modules (`import` / `export`)
 
 ## Project structure
 
 ```
-secure-notes/
-├── server.js               # starts Express and waits for the database
+Secure-Web-Portal/
+├── server.js                 # starts Express, turns on passport, waits for the database
 ├── config/
-│   └── connection.js       # connects to MongoDB
+│   ├── connection.js         # connects to MongoDB
+│   └── passport.js           # GitHub strategy: find, link, or create the user
 ├── models/
-│   ├── index.js            # exports User and Note together
-│   ├── User.js             # user schema + password hashing
-│   └── Note.js             # note schema with a required `user` owner field
+│   ├── index.js              # exports User and Bookmark together
+│   ├── User.js               # local + GitHub users (password OR githubId)
+│   └── Bookmark.js           # title, url, and the owner's user id
 ├── utils/
-│   └── auth.js             # signToken + authMiddleware (checks the JWT)
+│   └── auth.js               # signToken + authMiddleware (checks the JWT)
 └── routes/
-    ├── index.js            # mounts /api and the 404 page
+    ├── index.js              # mounts /api and the 404 page
     └── api/
-        ├── index.js        # mounts /users and /notes
-        ├── userRoutes.js   # register + login
-        └── noteRoutes.js   # note CRUD with ownership checks
+        ├── index.js          # mounts /users and /bookmarks
+        ├── userRoutes.js     # register, login, GitHub OAuth
+        └── bookmarkRoutes.js # bookmark CRUD with ownership checks
 ```
 
 ## Setup
@@ -52,14 +54,22 @@ secure-notes/
    npm install
    ```
 
-2. Make a `.env` file in the project folder:
+2. Register a GitHub OAuth App (GitHub → Settings → Developer settings → OAuth Apps → New OAuth App):
+   - **Homepage URL:** `http://localhost:3001`
+   - **Authorization callback URL:** `http://localhost:3001/api/users/auth/github/callback`
+
+3. Make a `.env` file in the project folder:
 
    ```
-   MONGO_URI=your-mongodb-atlas-connection-string/notesdb
+   MONGO_URI=your-mongodb-atlas-connection-string
+   PORT=3001
    JWT_SECRET=a-long-random-secret
+   GITHUB_CLIENT_ID=your-github-client-id
+   GITHUB_CLIENT_SECRET=your-github-client-secret
+   GITHUB_CALLBACK_URL=http://localhost:3001/api/users/auth/github/callback
    ```
 
-3. Start the server:
+4. Start the server:
 
    ```bash
    npx nodemon server.js
@@ -69,14 +79,16 @@ secure-notes/
 
 ## API endpoints
 
-### Users (no token needed)
+### Users
 
 | Method | Route | Body | What it does |
 |---|---|---|---|
-| POST | `/api/users/register` | `{ "username", "email", "password" }` | Makes a user and returns a token |
+| POST | `/api/users/register` | `{ "username", "email", "password" }` | Makes a local user and returns a token |
 | POST | `/api/users/login` | `{ "email", "password" }` | Logs in and returns a token |
+| GET | `/api/users/auth/github` | — | Sends you to GitHub to log in (open it in a browser) |
+| GET | `/api/users/auth/github/callback` | — | GitHub sends you back here, and the response is `{ token, user }` |
 
-### Notes (token required)
+### Bookmarks (token required)
 
 Send your token in the header:
 
@@ -86,43 +98,55 @@ Authorization: Bearer <your token>
 
 | Method | Route | What it does |
 |---|---|---|
-| GET | `/api/notes` | Gets **only your** notes |
-| POST | `/api/notes` | Makes a note owned by you. Body: `{ "title", "content" }` |
-| PUT | `/api/notes/:id` | Updates your note. **403** if it isn't yours |
-| DELETE | `/api/notes/:id` | Deletes your note. **403** if it isn't yours |
+| GET | `/api/bookmarks` | Gets **only your** bookmarks |
+| GET | `/api/bookmarks/:id` | Gets one of your bookmarks. **403** if it isn't yours |
+| POST | `/api/bookmarks` | Makes a bookmark owned by you. Body: `{ "title", "url" }` |
+| PUT | `/api/bookmarks/:id` | Updates your bookmark. **403** if it isn't yours |
+| DELETE | `/api/bookmarks/:id` | Deletes your bookmark. **403** if it isn't yours |
 
 ### Status codes
 
 | Code | Meaning |
 |---|---|
 | 200 / 201 | Success |
-| 400 | Bad input, or wrong email/password |
+| 400 | Bad input (like a missing password or url), or wrong email/password |
 | 401 | No token, or a bad token |
-| 403 | You're logged in, but the note isn't yours |
-| 404 | No note with that id |
+| 403 | You're logged in, but the bookmark isn't yours |
+| 404 | No bookmark with that id |
+
+## How GitHub login works
+
+1. The user opens `/api/users/auth/github` and is sent to GitHub.
+2. They click **Authorize**, and GitHub sends them back to the callback URL.
+3. `config/passport.js` looks for the user:
+   - **found by `githubId`?** Log them in (returning user).
+   - **found by email?** Attach the `githubId` to that local account (linked account).
+   - **nobody?** Create a new user with no password.
+4. The app signs its own JWT and returns `{ token, user }`.
+
+If a GitHub account has no public email, the app asks GitHub for it with the `user:email` scope.
+If there's still no email, it uses `username@users.noreply.github.com`.
 
 ## How the ownership check works
 
 ```js
-// 1. find the note (don't change it yet)
-const note = await Note.findById(req.params.id);
-
-// 2. it doesn't exist → 404
-if (!note) return res.status(404).json({ ... });
-
-// 3. it isn't yours → 403
-if (note.user.toString() !== req.user._id) return res.status(403).json({ ... });
-
-// 4. it's yours → update or delete it
+const bookmark = await Bookmark.findById(req.params.id);          // 1. find it
+if (!bookmark) return res.status(404).json({ ... });              // 2. missing → 404
+if (bookmark.user.toString() !== req.user._id)                    // 3. not yours → 403
+  return res.status(403).json({ ... });
+// 4. it's yours → send, update, or delete it
 ```
 
-`note.user` is a Mongo ObjectId, and `req.user._id` is a string from the token,
+`bookmark.user` is a Mongo ObjectId and `req.user._id` is a string from the token,
 so `.toString()` turns the ObjectId into text before comparing.
 
-## Testing with two users
+## Testing
 
-1. Register **User A** and **User B**. Save both tokens.
-2. As User A, `POST /api/notes` to make a note. Copy its `_id`.
-3. As User B, `GET /api/notes`. User A's note should **not** show up.
-4. As User B, `PUT` and `DELETE` `/api/notes/<User A's note id>`. Both should return **403**.
-5. As User A, do the same `PUT` and `DELETE`. Both should work.
+Tested with Postman, curl, and a browser (for GitHub login):
+
+- Register, then log in, gets a token. The password is stored hashed.
+- A duplicate email, a missing password, or a wrong password returns **400**.
+- Bookmarks with no token or a fake token return **401**.
+- GitHub login in the browser returns a token, and that token works on `/api/bookmarks`.
+- With two users, **B** gets an empty list and gets **403** when viewing, updating, or deleting **A's** bookmark.
+- **A** can view, update, and delete A's own bookmark, and a deleted bookmark returns **404**.
